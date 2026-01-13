@@ -8,11 +8,14 @@ Download all photos of your child from [Famly.co](https://app.famly.co).
 # Install Playwright browser (first time only)
 uv run --with playwright playwright install chromium
 
-# Run the script
+# First run - log in via browser
 uv run famly_downloader.py --login
+
+# Future runs - just run to download new photos
+uv run famly_downloader.py
 ```
 
-This opens a browser for you to log in, then automatically downloads all your child's photos.
+First run opens a browser for login and caches your credentials. After that, just run without `--login` to download any new photos.
 
 > **Don't have uv?** Install it with `curl -LsSf https://astral.sh/uv/install.sh | sh` or use the [traditional install](#traditional-install) instead.
 
@@ -34,6 +37,7 @@ This opens a browser for you to log in, then automatically downloads all your ch
 | `--output` | `-o` | Output directory (default: `./famly_photos`) |
 | `--workers` | `-w` | Number of parallel downloads (default: 4) |
 | `--thumbnail-only` | | Download smaller thumbnail versions |
+| `--full` | | Fetch all images, ignore last sync timestamp |
 | `--dry-run` | | List images without downloading |
 
 ## Examples
@@ -85,6 +89,7 @@ uv run famly_downloader.py --child-id "YOUR_CHILD_ID" --access-token "YOUR_TOKEN
 
 ## Notes
 
+- **Credentials are cached** in `.famly_credentials.json` in the output directory - just run without arguments after first login
 - Access tokens expire periodically; run `--login` again if you get a 401 error
 - Existing files are skipped, so you can safely re-run the script
 - Downloads highest resolution versions by default

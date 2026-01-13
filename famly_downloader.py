@@ -27,6 +27,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import sys
 import time
@@ -43,6 +44,111 @@ DEFAULT_CONFIG = {
     "max_workers": 4,
     "batch_size": 100,
 }
+
+CONFIG_FILENAME = ".famly_credentials.json"
+
+
+def load_cached_credentials(output_dir: Path) -> dict | None:
+    """
+    Load cached credentials from the output directory.
+
+    Parameters
+    ----------
+    output_dir : Path
+        The output directory to look for cached credentials.
+
+    Returns
+    -------
+    dict | None
+        Cached credentials dict or None if not found/invalid.
+    """
+    config_path = output_dir / CONFIG_FILENAME
+    if not config_path.exists():
+        return None
+
+    try:
+        with open(config_path) as f:
+            data = json.load(f)
+        if data.get("access_token") and data.get("children"):
+            return data
+    except (json.JSONDecodeError, OSError):
+        pass
+    return None
+
+
+def save_cached_credentials(
+    output_dir: Path,
+    access_token: str,
+    children: list,
+    last_sync: dict | None = None,
+) -> None:
+    """
+    Save credentials to the output directory.
+
+    Parameters
+    ----------
+    output_dir : Path
+        The output directory to save credentials to.
+    access_token : str
+        The Famly API access token.
+    children : list
+        List of child dictionaries.
+    last_sync : dict | None
+        Dict mapping child_id to their newest image timestamp.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config_path = output_dir / CONFIG_FILENAME
+
+    # Preserve existing last_sync data if not provided
+    existing_last_sync = {}
+    if config_path.exists() and last_sync is None:
+        try:
+            with open(config_path) as f:
+                existing = json.load(f)
+                existing_last_sync = existing.get("last_sync", {})
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    data = {
+        "access_token": access_token,
+        "children": children,
+        "saved_at": datetime.now().isoformat(),
+        "last_sync": last_sync if last_sync is not None else existing_last_sync,
+    }
+    with open(config_path, "w") as f:
+        json.dump(data, f, indent=2)
+    print(f"  Credentials cached to {config_path}")
+
+
+def update_last_sync(output_dir: Path, child_id: str, timestamp: str) -> None:
+    """
+    Update the last sync timestamp for a child.
+
+    Parameters
+    ----------
+    output_dir : Path
+        The output directory with the config file.
+    child_id : str
+        The child's ID.
+    timestamp : str
+        The newest image timestamp.
+    """
+    config_path = output_dir / CONFIG_FILENAME
+    if not config_path.exists():
+        return
+
+    try:
+        with open(config_path) as f:
+            data = json.load(f)
+
+        if "last_sync" not in data:
+            data["last_sync"] = {}
+        data["last_sync"][child_id] = timestamp
+
+        with open(config_path, "w") as f:
+            json.dump(data, f, indent=2)
+    except (json.JSONDecodeError, OSError):
+        pass
 
 
 class FamlyBrowserAuth:
@@ -236,7 +342,7 @@ class FamlyDownloader:
         response.raise_for_status()
         return response.json()
 
-    def fetch_all_images(self, batch_size: int = 100) -> list:
+    def fetch_all_images(self, batch_size: int = 100, stop_at: str | None = None) -> list:
         """
         Fetch all images for the child, handling pagination.
 
@@ -244,6 +350,8 @@ class FamlyDownloader:
         ----------
         batch_size : int
             Number of images to fetch per request.
+        stop_at : str | None
+            Stop fetching when reaching images older than this timestamp.
 
         Returns
         -------
@@ -252,8 +360,12 @@ class FamlyDownloader:
         """
         all_images = []
         older_than = None
+        reached_existing = False
 
-        print("Fetching image list from Famly...")
+        if stop_at:
+            print("Fetching new images since last sync...")
+        else:
+            print("Fetching all images from Famly...")
 
         while True:
             batch = self.fetch_image_list(older_than=older_than, limit=batch_size)
@@ -261,10 +373,21 @@ class FamlyDownloader:
             if not batch:
                 break
 
-            all_images.extend(batch)
-            print(f"  Found {len(all_images)} images so far...")
+            # Filter out images we've already synced
+            if stop_at:
+                new_batch = []
+                for img in batch:
+                    if img.get("createdAt", "") <= stop_at:
+                        reached_existing = True
+                        break
+                    new_batch.append(img)
+                batch = new_batch
 
-            if len(batch) < batch_size:
+            if batch:
+                all_images.extend(batch)
+                print(f"  Found {len(all_images)} new images so far...")
+
+            if reached_existing or len(batch) < batch_size:
                 break
 
             # Use the oldest image's timestamp for the next page
@@ -275,7 +398,9 @@ class FamlyDownloader:
 
             time.sleep(0.5)
 
-        print(f"Total images found: {len(all_images)}")
+        if reached_existing:
+            print("  Reached previously synced images")
+        print(f"Total new images found: {len(all_images)}")
         return all_images
 
     def _get_image_url(self, image: dict) -> str:
@@ -518,6 +643,11 @@ How to get credentials manually:
         action="store_true",
         help="Download thumbnail versions instead of full resolution",
     )
+    parser.add_argument(
+        "--full",
+        action="store_true",
+        help="Fetch all images, ignoring last sync timestamp",
+    )
     parser.add_argument("--dry-run", action="store_true", help="List images without downloading")
 
     args = parser.parse_args()
@@ -526,9 +656,20 @@ How to get credentials manually:
     print("  Famly Photo Downloader")
     print("=" * 60)
 
+    output_dir = Path(args.output)
     access_token = args.access_token
     child_id = args.child_id
     children_to_download = []
+    children = []
+
+    # Try to load cached credentials if not doing fresh login and no manual creds
+    if not args.login and not access_token and not child_id:
+        cached = load_cached_credentials(output_dir)
+        if cached:
+            print("\n✓ Using cached credentials")
+            access_token = cached["access_token"]
+            children = cached["children"]
+            print(f"✓ Found {len(children)} cached child(ren)")
 
     if args.login:
         credentials = FamlyBrowserAuth.get_credentials_from_browser()
@@ -544,66 +685,76 @@ How to get credentials manually:
         print("\n✓ Successfully obtained access token")
         print(f"✓ Found {len(children)} child(ren)")
 
+        # Cache credentials for future runs
         if children:
-            selected = select_child(children)
-            if isinstance(selected, list):
-                children_to_download = selected
-            else:
-                children_to_download = [selected] if selected else []
+            save_cached_credentials(output_dir, access_token, children)
 
-        if not children_to_download:
+    if children:
+        selected = select_child(children)
+        if isinstance(selected, list):
+            children_to_download = selected
+        else:
+            children_to_download = [selected] if selected else []
+
+    if not children_to_download:
+        if args.login or (not access_token and not child_id):
             print("\nNo children found. Please provide --child-id manually.")
             print("You can find the child ID in the URL when viewing their profile:")
             print("  https://app.famly.co/#/account/childProfile/CHILD_ID_HERE/activity")
             child_id = input("\nEnter child ID: ").strip()
             if child_id:
                 children_to_download = [{"id": child_id, "name": "Unknown"}]
-    else:
-        if not child_id:
-            print("\nError: --child-id is required (or use --login for interactive mode)")
+        elif child_id and access_token:
+            children_to_download = [{"id": child_id, "name": "Unknown"}]
+        else:
+            print(
+                "\nNo credentials found. Run with --login or provide --child-id and --access-token"
+            )
             print("Run with --help for more information")
             sys.exit(1)
-
-        if not access_token:
-            print("\nError: --access-token is required (or use --login for interactive mode)")
-            print("Run with --help for more information")
-            sys.exit(1)
-
-        children_to_download = [{"id": child_id, "name": "Unknown"}]
 
     if not children_to_download:
         print("\nNo child selected. Exiting.")
         sys.exit(1)
+
+    # Load last sync timestamps from cache
+    last_sync = {}
+    cached = load_cached_credentials(output_dir)
+    if cached:
+        last_sync = cached.get("last_sync", {})
 
     for child in children_to_download:
         child_id = child["id"]
         child_name = child.get("name", "Unknown")
 
         if len(children_to_download) > 1:
-            output_dir = Path(args.output) / child_name.replace(" ", "_")
+            child_output_dir = Path(args.output) / child_name.replace(" ", "_")
         else:
-            output_dir = Path(args.output)
+            child_output_dir = Path(args.output)
 
         print(f"\n{'=' * 60}")
         print(f"Downloading photos for: {child_name}")
         print(f"Child ID: {child_id[:8]}...{child_id[-4:]}")
-        print(f"Output: {output_dir}")
+        print(f"Output: {child_output_dir}")
         print(f"Resolution: {'Thumbnail' if args.thumbnail_only else 'Full'}")
         print("=" * 60)
 
         downloader = FamlyDownloader(
             child_id=child_id,
             access_token=access_token,
-            output_dir=str(output_dir),
+            output_dir=str(child_output_dir),
             download_big=not args.thumbnail_only,
             max_workers=args.workers,
         )
 
+        # Get last sync timestamp for this child (skip if --login or --full)
+        stop_at = last_sync.get(child_id) if not (args.login or args.full) else None
+
         try:
-            images = downloader.fetch_all_images()
+            images = downloader.fetch_all_images(stop_at=stop_at)
 
             if not images:
-                print("No images found for this child.")
+                print("No new images found for this child.")
                 continue
 
             if args.dry_run:
@@ -615,6 +766,12 @@ How to get credentials manually:
                 continue
 
             downloader.download_all(images)
+
+            # Update last sync timestamp with newest image
+            if images:
+                newest_timestamp = images[0].get("createdAt")
+                if newest_timestamp:
+                    update_last_sync(output_dir, child_id, newest_timestamp)
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
