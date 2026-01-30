@@ -285,6 +285,167 @@ header a:hover {
     white-space: nowrap;
 }
 
+/* Conversations/Messages */
+.conversation-header {
+    padding: 20px;
+    border-bottom: 1px solid var(--famly-border);
+    background: var(--famly-bg);
+}
+
+.conversation-participants {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.participant-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: white;
+    border-radius: 20px;
+    border: 1px solid var(--famly-border);
+}
+
+.participant-chip img {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.conversation-meta {
+    margin-top: 10px;
+    font-size: 0.85rem;
+    color: #666;
+}
+
+.messages-list {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.message {
+    display: flex;
+    gap: 12px;
+    max-width: 85%;
+}
+
+.message.from-me {
+    align-self: flex-end;
+    flex-direction: row-reverse;
+}
+
+.message-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.message-content {
+    background: white;
+    border-radius: 16px;
+    padding: 12px 16px;
+    border: 1px solid var(--famly-border);
+}
+
+.message.from-me .message-content {
+    background: var(--famly-purple-light);
+    border-color: var(--famly-purple);
+}
+
+.message-author {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 4px;
+    color: var(--famly-purple);
+}
+
+.message-body {
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.message-images {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.message-images img {
+    max-width: 200px;
+    max-height: 200px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.message-time {
+    font-size: 0.75rem;
+    color: #888;
+    margin-top: 6px;
+}
+
+.conversations-list {
+    padding: 20px;
+}
+
+.conversation-preview {
+    display: flex;
+    gap: 15px;
+    padding: 15px;
+    background: white;
+    border-radius: 12px;
+    border: 1px solid var(--famly-border);
+    margin-bottom: 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.conversation-preview:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+}
+
+.conversation-preview-avatar {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.conversation-preview-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.conversation-preview-title {
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+
+.conversation-preview-snippet {
+    font-size: 0.9rem;
+    color: #666;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.conversation-preview-meta {
+    font-size: 0.8rem;
+    color: #888;
+    margin-top: 4px;
+}
+
 /* Comments section */
 .comments-section {
     padding: 0 20px 20px;
@@ -682,10 +843,54 @@ class OutputFormatter(ABC):
         ...
 
     @abstractmethod
+    def format_conversation(
+        self,
+        conversation: dict,
+        message_images: dict[str, list[Path]],
+    ) -> str:
+        """
+        Format a single conversation page.
+
+        Parameters
+        ----------
+        conversation : dict
+            Full conversation data with messages.
+        message_images : dict[str, list[Path]]
+            Map of messageId to downloaded image paths.
+
+        Returns
+        -------
+        str
+            Formatted output string.
+        """
+        ...
+
+    @abstractmethod
+    def format_conversations_index(
+        self,
+        conversations: list[dict],
+    ) -> str:
+        """
+        Format the conversations index page.
+
+        Parameters
+        ----------
+        conversations : list[dict]
+            List of conversation summaries.
+
+        Returns
+        -------
+        str
+            Formatted output string.
+        """
+        ...
+
+    @abstractmethod
     def format_index(
         self,
         observations_count: int,
         photos_count: int,
+        conversations_count: int,
         child_name: str = "",
     ) -> str:
         """
@@ -697,6 +902,8 @@ class OutputFormatter(ABC):
             Total number of observations.
         photos_count : int
             Total number of photos.
+        conversations_count : int
+            Total number of conversations.
         child_name : str
             Name of the child (for title).
 
@@ -1292,10 +1499,178 @@ class HTMLFormatter(OutputFormatter):
 </body>
 </html>"""
 
+    def format_conversation(
+        self,
+        conversation: dict,
+        message_images: dict[str, list[Path]],
+    ) -> str:
+        """Generate HTML for a single conversation page."""
+        participants = conversation.get("participants", [])
+        messages = conversation.get("messages", [])
+        title = conversation.get("title") or " & ".join(
+            p.get("title", "Unknown") for p in participants[:2]
+        )
+
+        # Build participants chips
+        participants_html = ""
+        for p in participants:
+            img = p.get("image", "")
+            name = p.get("title", "Unknown")
+            img_html = f'<img src="{img}" alt="">' if img else ""
+            participants_html += f'<span class="participant-chip">{img_html}{name}</span>'
+
+        # Build messages HTML
+        messages_html = ""
+        for msg in messages:
+            msg_id = msg.get("messageId", "")
+            body = msg.get("body", "")
+            author = msg.get("author", {})
+            author_name = author.get("title", "Unknown")
+            author_img = author.get("image", "")
+            is_me = author.get("me", False)
+            sent_at = msg.get("createdAt", "")
+
+            # Format timestamp
+            try:
+                from datetime import datetime
+
+                dt = datetime.fromisoformat(sent_at.replace("+00:00", "+00:00"))
+                time_str = dt.strftime("%d %b %Y, %H:%M")
+            except (ValueError, AttributeError):
+                time_str = sent_at
+
+            # Avatar
+            avatar_html = (
+                f'<img class="message-avatar" src="{author_img}" alt="">'
+                if author_img
+                else '<div class="message-avatar"></div>'
+            )
+
+            # Images attached to this message
+            images_html = ""
+            if msg_id in message_images:
+                images_html = '<div class="message-images">'
+                for img_path in message_images[msg_id]:
+                    images_html += f'<img src="images/{img_path.name}" alt="Attached image">'
+                images_html += "</div>"
+
+            me_class = " from-me" if is_me else ""
+            messages_html += f"""
+            <div class="message{me_class}">
+                {avatar_html}
+                <div class="message-content">
+                    <div class="message-author">{author_name}</div>
+                    <div class="message-body">{body}</div>
+                    {images_html}
+                    <div class="message-time">{time_str}</div>
+                </div>
+            </div>"""
+
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title} - Messages</title>
+    <style>{FAMLY_CSS}</style>
+</head>
+<body>
+    <header>
+        <a href="../index.html" class="back-link">← Home</a>
+        <a href="index.html" class="back-link">Messages</a>
+    </header>
+    <div class="container">
+        <div class="observation-card">
+            <div class="conversation-header">
+                <div class="conversation-participants">
+                    {participants_html}
+                </div>
+                <div class="conversation-meta">
+                    {len(messages)} messages
+                </div>
+            </div>
+            <div class="messages-list">
+                {messages_html}
+            </div>
+        </div>
+    </div>
+</body>
+</html>"""
+
+    def format_conversations_index(
+        self,
+        conversations: list[dict],
+    ) -> str:
+        """Generate HTML for the conversations index page."""
+        # Build conversation previews
+        previews_html = ""
+        for conv in conversations:
+            conv_id = conv.get("conversationId", "")[:8]
+            participants = conv.get("participants", [])
+            title = conv.get("title") or " & ".join(
+                p.get("title", "Unknown") for p in participants[:2]
+            )
+            last_msg = conv.get("lastMessage", {})
+            preview = last_msg.get("body", "")[:80]
+            if len(last_msg.get("body", "")) > 80:
+                preview += "..."
+            last_activity = conv.get("lastActivityAt", "")
+
+            # Format date
+            try:
+                from datetime import datetime
+
+                dt = datetime.fromisoformat(last_activity.replace("+00:00", "+00:00"))
+                date_str = dt.strftime("%d %b %Y")
+            except (ValueError, AttributeError):
+                date_str = last_activity
+
+            # Get avatar from first participant
+            avatar = ""
+            if participants:
+                avatar = participants[0].get("image", "")
+            avatar_html = (
+                f'<img class="conversation-preview-avatar" src="{avatar}" alt="">'
+                if avatar
+                else '<div class="conversation-preview-avatar"></div>'
+            )
+
+            previews_html += f"""
+            <a href="{conv_id}/index.html" class="conversation-preview">
+                {avatar_html}
+                <div class="conversation-preview-content">
+                    <div class="conversation-preview-title">{title}</div>
+                    <div class="conversation-preview-snippet">{preview}</div>
+                    <div class="conversation-preview-meta">{date_str}</div>
+                </div>
+            </a>"""
+
+        return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Messages</title>
+    <style>{FAMLY_CSS}</style>
+</head>
+<body>
+    <header>
+        <a href="../index.html" class="back-link">← Home</a>
+        <span class="header-title">Messages</span>
+    </header>
+    <div class="container">
+        <div class="conversations-list">
+            {previews_html}
+        </div>
+    </div>
+</body>
+</html>"""
+
     def format_index(
         self,
         observations_count: int,
         photos_count: int,
+        conversations_count: int,
         child_name: str = "",
     ) -> str:
         """Generate HTML for the main index page."""
@@ -1388,6 +1763,12 @@ class HTMLFormatter(OutputFormatter):
                 <span class="index-card-title">Photo Gallery</span>
                 <span class="index-card-count">{photos_count}</span>
                 <span class="index-card-label">photos</span>
+            </a>
+            <a class="index-card" href="messages/index.html">
+                <span class="index-card-icon">💬</span>
+                <span class="index-card-title">Messages</span>
+                <span class="index-card-count">{conversations_count}</span>
+                <span class="index-card-label">conversations</span>
             </a>
         </div>
     </div>
@@ -1591,10 +1972,82 @@ class JSONFormatter(OutputFormatter):
 
         return json.dumps(gallery_data, indent=2, ensure_ascii=False)
 
+    def format_conversation(
+        self,
+        conversation: dict,
+        message_images: dict[str, list[Path]],
+    ) -> str:
+        """Generate JSON for a single conversation."""
+        import json
+
+        participants = conversation.get("participants", [])
+        messages = conversation.get("messages", [])
+
+        data = {
+            "type": "conversation",
+            "id": conversation.get("conversationId"),
+            "title": conversation.get("title"),
+            "createdAt": conversation.get("createdAt"),
+            "lastActivityAt": conversation.get("lastActivityAt"),
+            "participants": [
+                {
+                    "id": p.get("id"),
+                    "title": p.get("title"),
+                    "subtitle": p.get("subtitle"),
+                    "image": p.get("image"),
+                }
+                for p in participants
+            ],
+            "messages": [
+                {
+                    "id": msg.get("messageId"),
+                    "body": msg.get("body"),
+                    "author": {
+                        "id": msg.get("author", {}).get("id"),
+                        "name": msg.get("author", {}).get("title"),
+                        "subtitle": msg.get("author", {}).get("subtitle"),
+                        "isMe": msg.get("author", {}).get("me", False),
+                    },
+                    "sentAt": msg.get("createdAt"),
+                    "images": [
+                        f"images/{img_path.name}"
+                        for img_path in message_images.get(msg.get("messageId"), [])
+                    ],
+                }
+                for msg in messages
+            ],
+        }
+        return json.dumps(data, indent=2, ensure_ascii=False)
+
+    def format_conversations_index(
+        self,
+        conversations: list[dict],
+    ) -> str:
+        """Generate JSON for the conversations index."""
+        import json
+
+        data = {
+            "type": "conversations_index",
+            "count": len(conversations),
+            "conversations": [
+                {
+                    "id": conv.get("conversationId"),
+                    "title": conv.get("title"),
+                    "participants": [p.get("title") for p in conv.get("participants", [])],
+                    "lastActivityAt": conv.get("lastActivityAt"),
+                    "preview": conv.get("lastMessage", {}).get("body", "")[:100],
+                    "path": f"{conv.get('conversationId', '')[:8]}/index.json",
+                }
+                for conv in conversations
+            ],
+        }
+        return json.dumps(data, indent=2, ensure_ascii=False)
+
     def format_index(
         self,
         observations_count: int,
         photos_count: int,
+        conversations_count: int,
         child_name: str = "",
     ) -> str:
         """Generate JSON for the main index page."""
@@ -1610,6 +2063,10 @@ class JSONFormatter(OutputFormatter):
             "photos": {
                 "count": photos_count,
                 "path": "gallery.json",
+            },
+            "conversations": {
+                "count": conversations_count,
+                "path": "messages/index.json",
             },
         }
         return json.dumps(data, indent=2, ensure_ascii=False)

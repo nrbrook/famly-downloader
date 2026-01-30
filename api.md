@@ -69,6 +69,102 @@ To download an image, append dimensions and path to the prefix:
 
 The `prefix` contains a signed URL with an expiration timestamp.
 
+### List Conversations
+
+Retrieves all conversations for the authenticated user.
+
+```http
+GET /conversations
+```
+
+#### Response
+
+```json
+[
+  {
+    "conversationId": "uuid",
+    "createdAt": "2026-01-15T09:48:22+00:00",
+    "lastActivityAt": "2026-01-29T16:51:56+00:00",
+    "participants": [
+      {
+        "title": "User Name",
+        "subtitle": "Role Description",
+        "image": "https://img.famly.co/image/...",
+        "id": "participant-id"
+      }
+    ],
+    "lastMessage": {
+      "messageId": "uuid",
+      "body": "Message preview...",
+      "author": {
+        "title": "Author Name",
+        "subtitle": "Author Role",
+        "image": "https://img.famly.co/image/...",
+        "me": false,
+        "id": "author-id"
+      },
+      "images": [],
+      "files": []
+    },
+    "unread": false,
+    "archived": false
+  }
+]
+```
+
+### Get Conversation with Messages
+
+Retrieves a single conversation with full message history.
+
+```http
+GET /conversations/{conversationId}
+```
+
+#### Response
+
+Returns the same structure as list, plus a `messages` array:
+
+```json
+{
+  "conversationId": "uuid",
+  "participants": [...],
+  "messages": [
+    {
+      "messageId": "uuid",
+      "conversationId": "uuid",
+      "createdAt": "2026-01-15T09:48:22+00:00",
+      "body": "Full message text",
+      "author": {
+        "title": "Author Name",
+        "subtitle": "Author Role",
+        "image": "https://img.famly.co/image/...",
+        "me": false,
+        "id": "author-id"
+      },
+      "images": [
+        {
+          "prefix": "https://img.famly.co/image/...",
+          "key": "archive/2026/01/15/09/images/...",
+          "height": 2560,
+          "width": 1920,
+          "imageId": "uuid"
+        }
+      ],
+      "files": []
+    }
+  ],
+  "cursor": "message-id-for-pagination"
+}
+```
+
+#### Message Image URLs
+
+Message images use the same URL construction as tagged photos:
+
+```
+{prefix}/{key}
+```
+
 ---
 
 ## GraphQL API

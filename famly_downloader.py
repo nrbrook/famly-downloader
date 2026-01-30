@@ -524,6 +524,39 @@ class FamlyDownloader:
         print(f"Total observations found: {len(all_observations)}")
         return all_observations
 
+    def fetch_conversations(self) -> list[dict]:
+        """
+        Fetch all conversations from the REST API.
+
+        Returns
+        -------
+        list[dict]
+            List of conversation summaries with conversationId, participants, etc.
+        """
+        url = "https://app.famly.co/api/v2/conversations"
+        response = self.session.get(url, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
+    def fetch_conversation_messages(self, conversation_id: str) -> dict:
+        """
+        Fetch a single conversation with full message history.
+
+        Parameters
+        ----------
+        conversation_id : str
+            The conversation UUID.
+
+        Returns
+        -------
+        dict
+            Full conversation data including messages array.
+        """
+        url = f"https://app.famly.co/api/v2/conversations/{conversation_id}"
+        response = self.session.get(url, timeout=30)
+        response.raise_for_status()
+        return response.json()
+
     def _slugify(self, text: str, max_length: int = 30) -> str:
         """
         Convert text to a URL/filesystem-safe slug.
@@ -730,6 +763,68 @@ class FamlyDownloader:
                 print(f"  Warning: Failed to download video {video_id[:8]}: {e}")
 
         return downloaded
+
+    def download_message_images(self, conversation: dict, conv_dir: Path) -> dict[str, list[Path]]:
+        """
+        Download all images from messages in a conversation.
+
+        Parameters
+        ----------
+        conversation : dict
+            Full conversation data with messages array.
+        conv_dir : Path
+            Directory for this conversation.
+
+        Returns
+        -------
+        dict[str, list[Path]]
+            Map of messageId to list of downloaded image paths.
+        """
+        images_dir = conv_dir / "images"
+        message_images: dict[str, list[Path]] = {}
+
+        messages = conversation.get("messages", [])
+        for msg in messages:
+            msg_id = msg.get("messageId", "")
+            images = msg.get("images", [])
+            if not images:
+                continue
+
+            images_dir.mkdir(parents=True, exist_ok=True)
+            downloaded = []
+
+            for img in images:
+                img_id = img.get("imageId", "unknown")
+                prefix = img.get("prefix", "")
+                key = img.get("key", "")
+
+                if not prefix or not key:
+                    continue
+
+                url = f"{prefix}/{key}"
+                filename = f"{img_id[:8]}.jpg"
+                filepath = images_dir / filename
+
+                if filepath.exists():
+                    downloaded.append(filepath)
+                    continue
+
+                try:
+                    response = self.session.get(url, stream=True, timeout=60)
+                    response.raise_for_status()
+
+                    with open(filepath, "wb") as f:
+                        for chunk in response.iter_content(chunk_size=8192):
+                            f.write(chunk)
+
+                    downloaded.append(filepath)
+                except Exception as e:
+                    print(f"  Warning: Failed to download message image {img_id[:8]}: {e}")
+
+            if downloaded:
+                message_images[msg_id] = downloaded
+
+        return message_images
 
     def _get_image_url(self, image: dict) -> str:
         """
@@ -988,6 +1083,11 @@ How to get credentials manually:
         help="Only download observations, skip standalone photos",
     )
     parser.add_argument(
+        "--messages",
+        action="store_true",
+        help="Download messages/conversations",
+    )
+    parser.add_argument(
         "--gallery",
         action="store_true",
         help="Generate photo gallery (organized by month/year)",
@@ -1199,13 +1299,57 @@ How to get credentials manually:
                 else:
                     print("No photos found for gallery.")
 
+            # Download messages (if --messages)
+            conversations = []
+            if args.messages:
+                print("\n" + "-" * 40)
+                print("Fetching conversations...")
+                conversation_summaries = downloader.fetch_conversations()
+                print(f"Found {len(conversation_summaries)} conversations")
+
+                if conversation_summaries:
+                    formatter = get_formatter(args.format)
+                    ext = formatter.file_extension
+                    messages_dir = child_output_dir / "messages"
+                    messages_dir.mkdir(parents=True, exist_ok=True)
+
+                    print(f"Processing {len(conversation_summaries)} conversations...")
+                    for conv_summary in tqdm(
+                        conversation_summaries, desc="Conversations", unit="conv"
+                    ):
+                        conv_id = conv_summary.get("conversationId", "")
+                        conv_dir_name = conv_id[:8]
+                        conv_dir = messages_dir / conv_dir_name
+                        conv_dir.mkdir(parents=True, exist_ok=True)
+
+                        # Fetch full conversation with messages
+                        conversation = downloader.fetch_conversation_messages(conv_id)
+                        conversations.append(conversation)
+
+                        # Download images from messages
+                        message_images = downloader.download_message_images(conversation, conv_dir)
+
+                        # Generate conversation page
+                        conv_output = formatter.format_conversation(conversation, message_images)
+                        conv_file = conv_dir / f"index.{ext}"
+                        with open(conv_file, "w", encoding="utf-8") as f:
+                            f.write(conv_output)
+
+                    # Generate conversations index
+                    index_output = formatter.format_conversations_index(conversations)
+                    index_file = messages_dir / f"index.{ext}"
+                    with open(index_file, "w", encoding="utf-8") as f:
+                        f.write(index_output)
+                    print(f"Generated messages index: {index_file}")
+
             # Generate main index page
             formatter = get_formatter(args.format)
             ext = formatter.file_extension
             obs_count = len(observations) if observations else 0
+            conv_count = len(conversations) if conversations else 0
             if not photos:
                 photos = get_photos_from_directory(child_output_dir)
-            index_output = formatter.format_index(obs_count, len(photos), child_name)
+            index_output = formatter.format_index(obs_count, len(photos), conv_count, child_name)
             index_file = child_output_dir / f"index.{ext}"
             with open(index_file, "w", encoding="utf-8") as f:
                 f.write(index_output)
