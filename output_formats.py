@@ -572,6 +572,8 @@ header a:hover {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 10px;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .photo-grid a {
@@ -579,6 +581,7 @@ header a:hover {
     aspect-ratio: 1;
     overflow: hidden;
     border-radius: 8px;
+    -webkit-user-drag: none;
 }
 
 .photo-grid img {
@@ -586,9 +589,10 @@ header a:hover {
     height: 100%;
     object-fit: cover;
     transition: transform 0.2s;
+    -webkit-user-drag: none;
 }
 
-.photo-grid img:hover {
+.photo-grid a:hover img {
     transform: scale(1.05);
 }
 
@@ -615,6 +619,8 @@ header a:hover {
     gap: 2px;
     padding: 10px 0;
     z-index: 100;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .timeline-item {
@@ -771,15 +777,145 @@ header a:hover {
     }
 
     .timeline-nav {
-        display: none;
+        opacity: 0;
+        pointer-events: auto;
+        transition: opacity 0.3s ease, width 0.2s ease, padding 0.2s ease;
+        right: 0;
+        top: 10%;
+        bottom: 10%;
+        transform: none;
+        max-height: 80vh;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        padding: 20px 15px 20px 25px;
+        width: 85px;
+        background: rgba(255,255,255,0.5);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        -webkit-mask-image:
+            linear-gradient(to right, transparent 0%, black 20%, black 100%),
+            linear-gradient(to bottom, transparent 0%, black 8%, black 92%, transparent 100%);
+        -webkit-mask-composite: source-in;
+        mask-image:
+            linear-gradient(to right, transparent 0%, black 20%, black 100%),
+            linear-gradient(to bottom, transparent 0%, black 8%, black 92%, transparent 100%);
+        mask-composite: intersect;
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
+    }
+
+    .timeline-nav.visible,
+    .timeline-nav:hover {
+        opacity: 1;
+    }
+
+    .timeline-nav.expanded,
+    .timeline-nav:hover {
+        width: 200px;
+        padding-left: 55px;
+    }
+
+    .timeline-nav .timeline-item {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        height: 22px;
+    }
+
+    .timeline-nav .timeline-label {
+        opacity: 0 !important;
+        transform: translateX(10px) scale(1);
+        transition: opacity 0.25s ease, transform 0.15s ease;
+        font-size: 0.75rem;
+        white-space: nowrap;
+        flex-shrink: 0;
+    }
+
+    .timeline-nav.expanded .timeline-item.active .timeline-label,
+    .timeline-nav:hover .timeline-item.active .timeline-label {
+        opacity: 1 !important;
+        transform: translateX(0) scale(1.1);
+    }
+
+    .timeline-nav .timeline-year {
+        opacity: 0.7;
+        transform: translateX(0);
+        transition: opacity 0.25s ease, transform 0.25s ease;
+        font-size: 0.65rem;
+        text-align: right;
+    }
+
+    .timeline-nav .timeline-tick {
+        width: 20px;
+        opacity: 0.6;
+        flex-shrink: 0;
+        transition: width 0.15s ease, opacity 0.15s ease;
+    }
+
+    .timeline-nav .timeline-item.active .timeline-tick {
+        width: 28px;
+        opacity: 1;
+    }
+
+    .timeline-nav.expanded .timeline-label,
+    .timeline-nav:hover .timeline-label {
+        opacity: 0.5 !important;
+        transform: translateX(0) scale(0.9);
+    }
+
+    .timeline-nav.expanded .timeline-item.neighbor-2 .timeline-label,
+    .timeline-nav:hover .timeline-item.neighbor-2 .timeline-label {
+        opacity: 0.65 !important;
+        transform: translateX(0) scale(0.95);
+    }
+
+    .timeline-nav.expanded .timeline-item.neighbor .timeline-label,
+    .timeline-nav:hover .timeline-item.neighbor .timeline-label {
+        opacity: 0.85 !important;
+        transform: translateX(0) scale(1.05);
+    }
+
+    .timeline-nav.expanded .timeline-item.hovered .timeline-label,
+    .timeline-nav:hover .timeline-item.hovered .timeline-label {
+        opacity: 1 !important;
+        transform: translateX(0) scale(1.2);
+        font-weight: 600;
+    }
+
+    .timeline-nav.expanded .timeline-year,
+    .timeline-nav:hover .timeline-year {
+        opacity: 1;
+        transform: translateX(0);
+    }
+
+    .timeline-nav:hover .timeline-item.neighbor-2 .timeline-tick,
+    .timeline-nav.expanded .timeline-item.neighbor-2 .timeline-tick {
+        width: 24px;
+        opacity: 0.7;
+    }
+
+    .timeline-nav:hover .timeline-item.neighbor .timeline-tick,
+    .timeline-nav.expanded .timeline-item.neighbor .timeline-tick {
+        width: 28px;
+        opacity: 0.85;
+    }
+
+    .timeline-nav:hover .timeline-item.hovered .timeline-tick,
+    .timeline-nav.expanded .timeline-item.hovered .timeline-tick {
+        width: 34px;
+        opacity: 1;
     }
 }
 """
 
 FOOTER_HTML = """
     <footer class="site-footer">
-        Created with <span class="heart">♥</span> by <a href="https://github.com/nrbrook" target="_blank">Nick Brook</a>
-        using <a href="https://github.com/nrbrook/famly-downloader" target="_blank">Famly Downloader</a>
+        This archive was created with <a href="https://github.com/nrbrook/famly-downloader" target="_blank">Famly Downloader</a>
+        by <a href="https://github.com/nrbrook" target="_blank">Nick Brook</a>
     </footer>
 """
 
@@ -1347,6 +1483,31 @@ class HTMLFormatter(OutputFormatter):
 
     window.addEventListener('scroll', updateActiveMonth, { passive: true });
     updateActiveMonth();
+
+    // Mobile: show timeline on scroll, hide after delay
+    // CSS handles hiding on mobile via media query; this just toggles .visible class
+    let scrollTimeout;
+    let isHovering = false;
+
+    function handleScroll() {
+        nav.classList.add('visible');
+        clearTimeout(scrollTimeout);
+        scrollTimeout = setTimeout(() => {
+            if (!isHovering) nav.classList.remove('visible');
+        }, 1500);
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    nav.addEventListener('mouseenter', () => {
+        isHovering = true;
+        clearTimeout(scrollTimeout);
+    });
+    nav.addEventListener('mouseleave', () => {
+        isHovering = false;
+        scrollTimeout = setTimeout(() => {
+            nav.classList.remove('visible');
+        }, 1500);
+    });
 })();
 </script>"""
 
@@ -1447,8 +1608,9 @@ class HTMLFormatter(OutputFormatter):
     const nav = document.querySelector('.timeline-nav');
     const items = document.querySelectorAll('.timeline-item');
     const sections = document.querySelectorAll('.month-section');
+    const itemsArray = Array.from(items);
 
-    // Click to scroll
+    // Click to scroll (desktop)
     items.forEach(item => {
         item.addEventListener('click', () => {
             const targetId = item.dataset.target;
@@ -1459,30 +1621,51 @@ class HTMLFormatter(OutputFormatter):
         });
     });
 
-    // Hover neighbor effect
-    items.forEach((item, index) => {
-        item.addEventListener('mouseenter', () => {
-            items.forEach((other, otherIndex) => {
-                other.classList.remove('neighbor', 'neighbor-2');
-                const distance = Math.abs(otherIndex - index);
-                if (distance === 1) other.classList.add('neighbor');
-                else if (distance === 2) other.classList.add('neighbor-2');
-            });
+    // Hover effect based on mouse position in container
+    function updateHoverState(index) {
+        items.forEach((other, otherIndex) => {
+            other.classList.remove('hovered', 'neighbor', 'neighbor-2');
+            if (index >= 0) {
+                if (otherIndex === index) {
+                    other.classList.add('hovered');
+                } else {
+                    const distance = Math.abs(otherIndex - index);
+                    if (distance === 1) other.classList.add('neighbor');
+                    else if (distance === 2) other.classList.add('neighbor-2');
+                }
+            }
         });
-        item.addEventListener('mouseleave', () => {
-            items.forEach(other => other.classList.remove('neighbor', 'neighbor-2'));
+    }
+
+    function getClosestItemIndex(y) {
+        let closestIndex = 0;
+        let closestDistance = Infinity;
+        itemsArray.forEach((item, index) => {
+            const rect = item.getBoundingClientRect();
+            const itemCenter = rect.top + rect.height / 2;
+            const distance = Math.abs(y - itemCenter);
+            if (distance < closestDistance) {
+                closestDistance = distance;
+                closestIndex = index;
+            }
         });
-    });
+        return closestIndex;
+    }
+
+    // State variables (declared early for use in scroll handlers)
+    let scrollTimeout;
+    let isHovering = false;
+    let isDragging = false;
 
     // Scroll tracking
     function updateActiveMonth() {
-        const scrollTop = window.scrollY;
+        if (isDragging) return; // Skip during drag to avoid flicker
+
         const windowHeight = window.innerHeight;
         let activeSection = null;
 
         sections.forEach(section => {
             const rect = section.getBoundingClientRect();
-            // Section is active if it's in the top half of the viewport
             if (rect.top <= windowHeight / 3 && rect.bottom > 0) {
                 activeSection = section;
             }
@@ -1498,6 +1681,176 @@ class HTMLFormatter(OutputFormatter):
 
     window.addEventListener('scroll', updateActiveMonth, { passive: true });
     updateActiveMonth();
+
+    // Mobile: show timeline on scroll, hide after delay
+
+    function handleScroll() {
+        if (!isDragging) {
+            nav.classList.add('visible');
+            clearTimeout(scrollTimeout);
+            scrollTimeout = setTimeout(() => {
+                if (!isDragging && !isHovering) nav.classList.remove('visible');
+            }, 1500);
+        }
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true });
+
+    nav.addEventListener('mouseenter', () => {
+        isHovering = true;
+        clearTimeout(scrollTimeout);
+    });
+
+    nav.addEventListener('mousemove', (e) => {
+        if (isDragging) return;
+        const index = getClosestItemIndex(e.clientY);
+        updateHoverState(index);
+    });
+
+    nav.addEventListener('mouseleave', () => {
+        isHovering = false;
+        updateHoverState(-1);
+        if (!isDragging) {
+            scrollTimeout = setTimeout(() => {
+                nav.classList.remove('visible');
+            }, 1500);
+        }
+    });
+
+    // Mobile touch drag to scrub through timeline
+    function getItemAtY(y) {
+        for (const item of itemsArray) {
+            const rect = item.getBoundingClientRect();
+            if (y >= rect.top && y <= rect.bottom) {
+                return item;
+            }
+        }
+        // If above or below, return first or last
+        if (y < itemsArray[0].getBoundingClientRect().top) return itemsArray[0];
+        return itemsArray[itemsArray.length - 1];
+    }
+
+    function scrollToItem(item) {
+        const targetId = item.dataset.target;
+        const target = document.getElementById(targetId);
+        if (target) {
+            target.scrollIntoView({ behavior: 'auto', block: 'start' });
+        }
+        // Update active state
+        items.forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+    }
+
+    let dragY = 0;
+    let autoScrollInterval = null;
+    const EDGE_ZONE = 50; // pixels from edge to trigger scroll
+    const SCROLL_SPEED = 8; // pixels per frame
+
+    function startDrag(y) {
+        isDragging = true;
+        dragY = y;
+        nav.classList.add('visible', 'expanded');
+        clearTimeout(scrollTimeout);
+        startAutoScroll();
+        const index = getClosestItemIndex(y);
+        scrollToItem(itemsArray[index]);
+        updateHoverState(index);
+    }
+
+    function moveDrag(y) {
+        if (!isDragging) return;
+        dragY = y;
+        const index = getClosestItemIndex(y);
+        scrollToItem(itemsArray[index]);
+        updateHoverState(index);
+    }
+
+    function endDrag() {
+        if (!isDragging) return;
+        isDragging = false;
+        stopAutoScroll();
+        nav.classList.remove('expanded');
+        updateHoverState(-1);
+        scrollTimeout = setTimeout(() => {
+            if (!isHovering) nav.classList.remove('visible');
+        }, 1500);
+    }
+
+    function startAutoScroll() {
+        if (autoScrollInterval) return;
+        autoScrollInterval = setInterval(() => {
+            if (!isDragging) return;
+            const navRect = nav.getBoundingClientRect();
+            const relativeY = dragY - navRect.top;
+
+            if (relativeY < EDGE_ZONE) {
+                // Near top - scroll up
+                const speed = SCROLL_SPEED * (1 - relativeY / EDGE_ZONE);
+                nav.scrollTop -= speed;
+            } else if (relativeY > navRect.height - EDGE_ZONE) {
+                // Near bottom - scroll down
+                const distFromBottom = navRect.height - relativeY;
+                const speed = SCROLL_SPEED * (1 - distFromBottom / EDGE_ZONE);
+                nav.scrollTop += speed;
+            }
+        }, 16); // ~60fps
+    }
+
+    function stopAutoScroll() {
+        if (autoScrollInterval) {
+            clearInterval(autoScrollInterval);
+            autoScrollInterval = null;
+        }
+    }
+
+    // Unified pointer events (works for both touch and mouse)
+    nav.addEventListener('pointerdown', (e) => {
+        if (e.pointerType === 'touch') {
+            nav.setPointerCapture(e.pointerId);
+        }
+        startDrag(e.clientY);
+        e.preventDefault();
+    });
+
+    nav.addEventListener('pointermove', (e) => {
+        moveDrag(e.clientY);
+    });
+
+    nav.addEventListener('pointerup', (e) => {
+        if (e.pointerType === 'touch') {
+            nav.releasePointerCapture(e.pointerId);
+        }
+        endDrag();
+    });
+
+    nav.addEventListener('pointercancel', (e) => {
+        if (e.pointerType === 'touch') {
+            nav.releasePointerCapture(e.pointerId);
+        }
+        endDrag();
+    });
+
+    // Touch event fallback for older iOS Safari
+    nav.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+            startDrag(e.touches[0].clientY);
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    nav.addEventListener('touchmove', (e) => {
+        if (e.touches.length === 1) {
+            moveDrag(e.touches[0].clientY);
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    nav.addEventListener('touchend', (e) => {
+        endDrag();
+    });
+
+    nav.addEventListener('touchcancel', (e) => {
+        endDrag();
+    });
 })();
 </script>"""
 
