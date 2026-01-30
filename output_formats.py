@@ -728,6 +728,29 @@ header a:hover {
     opacity: 0.6;
 }
 
+/* Footer */
+.site-footer {
+    margin-top: 60px;
+    padding: 30px 20px;
+    text-align: center;
+    color: var(--famly-text-light);
+    font-size: 0.85rem;
+    border-top: 1px solid var(--famly-border);
+}
+
+.site-footer a {
+    color: var(--famly-purple);
+    text-decoration: none;
+}
+
+.site-footer a:hover {
+    text-decoration: underline;
+}
+
+.site-footer .heart {
+    color: #e25555;
+}
+
 /* Responsive */
 @media (max-width: 600px) {
     .container {
@@ -751,6 +774,13 @@ header a:hover {
         display: none;
     }
 }
+"""
+
+FOOTER_HTML = """
+    <footer class="site-footer">
+        Created with <span class="heart">♥</span> by <a href="https://github.com/nrbrook" target="_blank">Nick Brook</a>
+        using <a href="https://github.com/nrbrook/famly-downloader" target="_blank">Famly Downloader</a>
+    </footer>
 """
 
 
@@ -970,7 +1000,7 @@ class HTMLFormatter(OutputFormatter):
     </header>
     <div class="container">
         {card_html}
-    </div>
+    </div>{FOOTER_HTML}
 </body>
 </html>"""
 
@@ -1343,7 +1373,7 @@ class HTMLFormatter(OutputFormatter):
     </nav>
     <div class="container">
         {sections_html}
-    </div>
+    </div>{FOOTER_HTML}
     {timeline_js}
 </body>
 </html>"""
@@ -1494,7 +1524,7 @@ class HTMLFormatter(OutputFormatter):
     </nav>
     <div class="container">
         {sections_html}
-    </div>
+    </div>{FOOTER_HTML}
     {timeline_js}
 </body>
 </html>"""
@@ -1593,7 +1623,7 @@ class HTMLFormatter(OutputFormatter):
                 {messages_html}
             </div>
         </div>
-    </div>
+    </div>{FOOTER_HTML}
 </body>
 </html>"""
 
@@ -1662,7 +1692,7 @@ class HTMLFormatter(OutputFormatter):
         <div class="conversations-list">
             {previews_html}
         </div>
-    </div>
+    </div>{FOOTER_HTML}
 </body>
 </html>"""
 
@@ -1771,7 +1801,7 @@ class HTMLFormatter(OutputFormatter):
                 <span class="index-card-label">conversations</span>
             </a>
         </div>
-    </div>
+    </div>{FOOTER_HTML}
 </body>
 </html>"""
 

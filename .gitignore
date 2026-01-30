@@ -252,3 +252,6 @@ $RECYCLE.BIN/
 famly_photos/
 # Famly credentials cache
 .famly_credentials.json
+# Publish config (contains secrets)
+.publish.yaml
+.publish.json

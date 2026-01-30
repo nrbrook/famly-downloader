@@ -1,0 +1,54 @@
+# Example publish configuration
+# Copy this file to .publish.yaml and customize for your setup
+# .publish.yaml is gitignored - your secrets won't be committed
+#
+# Note: YAML requires PyYAML (pip install pyyaml)
+# Alternatively, use .publish.json which works without extra dependencies
+
+# Default provider to use (can be overridden with --provider)
+provider: cloudflare
+
+# Source directory containing photos/observations
+source_dir: ./famly_photos
+
+# Project name for deployment
+project_name: famly-photos
+
+# Cloudflare Pages settings
+cloudflare:
+  # Your Cloudflare account ID (find in dashboard URL or API)
+  # Can also be set via CLOUDFLARE_ACCOUNT_ID env var
+  account_id: ""
+
+  # API token for Cloudflare Access setup (optional)
+  # Create at: https://dash.cloudflare.com/profile/api-tokens
+  # Requires: Account > Access: Apps and Policies > Edit
+  # Can also be set via CLOUDFLARE_API_TOKEN env var
+  api_token: ""
+
+  # Email addresses to grant access via Cloudflare Access
+  # Leave empty for public access
+  access_emails:
+    # - you@example.com
+    # - family@example.com
+
+# AWS S3 settings
+s3:
+  # S3 bucket name
+  # Can also be set via S3_BUCKET env var
+  bucket: ""
+
+  # AWS region (default: us-east-1)
+  # Can also be set via AWS_REGION env var
+  region: us-east-1
+
+  # Optional path prefix within the bucket
+  prefix: ""
+
+  # Custom URL for the deployed site (e.g., CloudFront distribution)
+  # custom_url: https://photos.example.com
+
+# Zip file settings
+zip:
+  # Directory to save zip files
+  output_dir: "."

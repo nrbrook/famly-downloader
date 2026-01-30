@@ -1,0 +1,22 @@
+{
+  "_comment": "Example publish configuration - copy to .publish.json and customize",
+  "provider": "cloudflare",
+  "source_dir": "./famly_photos",
+  "project_name": "famly-photos",
+
+  "cloudflare": {
+    "account_id": "",
+    "api_token": "",
+    "access_emails": []
+  },
+
+  "s3": {
+    "bucket": "",
+    "region": "us-east-1",
+    "prefix": ""
+  },
+
+  "zip": {
+    "output_dir": "."
+  }
+}
