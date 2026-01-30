@@ -29,6 +29,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,6 +38,8 @@ from pathlib import Path
 
 import requests
 from tqdm import tqdm
+
+from output_formats import FORMATTERS, get_formatter, get_photos_from_directory
 
 DEFAULT_CONFIG = {
     "output_dir": "./famly_photos",
@@ -403,6 +406,331 @@ class FamlyDownloader:
         print(f"Total new images found: {len(all_images)}")
         return all_images
 
+    def fetch_observations(self, first: int = 50, after: str | None = None) -> dict:
+        """
+        Fetch a batch of observations via GraphQL.
+
+        Parameters
+        ----------
+        first : int
+            Number of observations to fetch per request.
+        after : str | None
+            Cursor for pagination - fetch observations after this cursor.
+
+        Returns
+        -------
+        dict
+            GraphQL response with 'results' list and 'next' cursor.
+        """
+        query = """
+        query GetObservations($childIds: [ChildId!], $first: Int!, $after: ObservationCursor) {
+          childDevelopment {
+            observations(childIds: $childIds, first: $first, after: $after) {
+              results {
+                id
+                createdBy { name { fullName } profileImage { url } }
+                remark { id date body richTextBody }
+                children { id name }
+                images { id width height url secret { prefix key path expires } }
+                files { id name url }
+                videos {
+                  ... on TranscodedVideo {
+                    id
+                    videoUrl
+                    thumbnailUrl
+                    duration
+                    width
+                    height
+                  }
+                }
+                behaviors { behaviorId }
+                likes {
+                  count
+                  likedByMe
+                  likes {
+                    likedBy { name { fullName } }
+                    reaction
+                  }
+                }
+                comments {
+                  count
+                  results {
+                    id
+                    body
+                    sentBy { name { fullName } profileImage { url } }
+                    sentAt
+                  }
+                }
+              }
+              next
+            }
+          }
+        }
+        """
+        variables = {
+            "childIds": [self.child_id],
+            "first": first,
+        }
+        if after:
+            variables["after"] = after
+
+        response = self.session.post(
+            "https://app.famly.co/graphql",
+            json={"query": query, "variables": variables},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if "errors" in data:
+            raise ValueError(f"GraphQL errors: {data['errors']}")
+
+        return data["data"]["childDevelopment"]["observations"]
+
+    def fetch_all_observations(self, batch_size: int = 50) -> list:
+        """
+        Fetch all observations for the child with cursor-based pagination.
+
+        Parameters
+        ----------
+        batch_size : int
+            Number of observations to fetch per request.
+
+        Returns
+        -------
+        list
+            Complete list of all observation dictionaries.
+        """
+        all_observations = []
+        cursor = None
+
+        print("Fetching observations from Famly...")
+
+        while True:
+            result = self.fetch_observations(first=batch_size, after=cursor)
+            batch = result.get("results", [])
+
+            if not batch:
+                break
+
+            all_observations.extend(batch)
+            print(f"  Found {len(all_observations)} observations so far...")
+
+            cursor = result.get("next")
+            if not cursor:
+                break
+
+            time.sleep(0.5)
+
+        print(f"Total observations found: {len(all_observations)}")
+        return all_observations
+
+    def _slugify(self, text: str, max_length: int = 30) -> str:
+        """
+        Convert text to a URL/filesystem-safe slug.
+
+        Parameters
+        ----------
+        text : str
+            Text to convert.
+        max_length : int
+            Maximum length of the slug.
+
+        Returns
+        -------
+        str
+            Slugified text.
+        """
+        slug = text.lower()
+        slug = re.sub(r"[^\w\s-]", "", slug)
+        slug = re.sub(r"[\s_]+", "-", slug)
+        slug = slug.strip("-")
+        return slug[:max_length].rstrip("-")
+
+    def _get_observation_dir_name(self, observation: dict) -> str:
+        """
+        Generate a directory name for an observation.
+
+        Parameters
+        ----------
+        observation : dict
+            Observation data from API.
+
+        Returns
+        -------
+        str
+            Directory name in format: YYYY-MM-DD_slug_id
+        """
+        date = observation.get("remark", {}).get("date", "unknown")
+        body = observation.get("remark", {}).get("body", "")
+        obs_id = observation.get("id", "unknown")[:8]
+
+        # Get first line or first few words for the slug
+        first_line = body.split("\n")[0] if body else "observation"
+        slug = self._slugify(first_line)
+        if not slug:
+            slug = "observation"
+
+        return f"{date}_{slug}_{obs_id}"
+
+    def download_observation_images(self, observation: dict, obs_dir: Path) -> list[Path]:
+        """
+        Download all images for an observation to obs_dir/img/.
+
+        Parameters
+        ----------
+        observation : dict
+            Observation data from API.
+        obs_dir : Path
+            Directory for this observation.
+
+        Returns
+        -------
+        list[Path]
+            List of paths to downloaded images.
+        """
+        images = observation.get("images", [])
+        if not images:
+            return []
+
+        img_dir = obs_dir / "img"
+        img_dir.mkdir(parents=True, exist_ok=True)
+
+        downloaded = []
+        for img in images:
+            img_id = img.get("id", "unknown")
+            url = img.get("url", "")
+            if not url:
+                continue
+
+            # Determine file extension from URL path
+            path = img.get("secret", {}).get("path", "")
+            ext = Path(path).suffix if path else ".jpg"
+            if not ext:
+                ext = ".jpg"
+
+            filename = f"{img_id[:8]}{ext}"
+            filepath = img_dir / filename
+
+            if filepath.exists():
+                downloaded.append(filepath)
+                continue
+
+            try:
+                response = self.session.get(url, stream=True, timeout=30)
+                response.raise_for_status()
+
+                with open(filepath, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+                downloaded.append(filepath)
+            except Exception as e:
+                print(f"  Warning: Failed to download image {img_id[:8]}: {e}")
+
+        return downloaded
+
+    def download_observation_files(self, observation: dict, obs_dir: Path) -> list[Path]:
+        """
+        Download all file attachments for an observation to obs_dir/files/.
+
+        Parameters
+        ----------
+        observation : dict
+            Observation data from API.
+        obs_dir : Path
+            Directory for this observation.
+
+        Returns
+        -------
+        list[Path]
+            List of paths to downloaded files.
+        """
+        files = observation.get("files", [])
+        if not files:
+            return []
+
+        files_dir = obs_dir / "files"
+        files_dir.mkdir(parents=True, exist_ok=True)
+
+        downloaded = []
+        for file in files:
+            file_id = file.get("id", "unknown")
+            url = file.get("url", "")
+            name = file.get("name", f"{file_id}.pdf")
+            if not url:
+                continue
+
+            filepath = files_dir / name
+
+            if filepath.exists():
+                downloaded.append(filepath)
+                continue
+
+            try:
+                response = self.session.get(url, stream=True, timeout=60)
+                response.raise_for_status()
+
+                with open(filepath, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+                downloaded.append(filepath)
+            except Exception as e:
+                print(f"  Warning: Failed to download file {name}: {e}")
+
+        return downloaded
+
+    def download_observation_videos(self, observation: dict, obs_dir: Path) -> list[Path]:
+        """
+        Download all videos for an observation to obs_dir/videos/.
+
+        Parameters
+        ----------
+        observation : dict
+            Observation data from API.
+        obs_dir : Path
+            Directory for this observation.
+
+        Returns
+        -------
+        list[Path]
+            List of paths to downloaded videos.
+        """
+        videos = observation.get("videos", [])
+        if not videos:
+            return []
+
+        videos_dir = obs_dir / "videos"
+        videos_dir.mkdir(parents=True, exist_ok=True)
+
+        downloaded = []
+        for video in videos:
+            video_id = video.get("id", "unknown")
+            url = video.get("videoUrl", "")
+            if not url:
+                continue
+
+            filename = f"{video_id[:8]}.mp4"
+            filepath = videos_dir / filename
+
+            if filepath.exists():
+                downloaded.append(filepath)
+                continue
+
+            try:
+                response = self.session.get(url, stream=True, timeout=120)
+                response.raise_for_status()
+
+                with open(filepath, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+
+                downloaded.append(filepath)
+            except Exception as e:
+                print(f"  Warning: Failed to download video {video_id[:8]}: {e}")
+
+        return downloaded
+
     def _get_image_url(self, image: dict) -> str:
         """
         Get the best available URL for an image.
@@ -649,6 +977,28 @@ How to get credentials manually:
         help="Fetch all images, ignoring last sync timestamp",
     )
     parser.add_argument("--dry-run", action="store_true", help="List images without downloading")
+    parser.add_argument(
+        "--observations",
+        action="store_true",
+        help="Download observations in addition to photos",
+    )
+    parser.add_argument(
+        "--observations-only",
+        action="store_true",
+        help="Only download observations, skip standalone photos",
+    )
+    parser.add_argument(
+        "--gallery",
+        action="store_true",
+        help="Generate photo gallery (organized by month/year)",
+    )
+    parser.add_argument(
+        "--format",
+        "-f",
+        choices=list(FORMATTERS.keys()),
+        default="html",
+        help="Output format for observations and gallery (default: html)",
+    )
 
     args = parser.parse_args()
 
@@ -733,10 +1083,9 @@ How to get credentials manually:
             child_output_dir = Path(args.output)
 
         print(f"\n{'=' * 60}")
-        print(f"Downloading photos for: {child_name}")
+        print(f"Processing: {child_name}")
         print(f"Child ID: {child_id[:8]}...{child_id[-4:]}")
         print(f"Output: {child_output_dir}")
-        print(f"Resolution: {'Thumbnail' if args.thumbnail_only else 'Full'}")
         print("=" * 60)
 
         downloader = FamlyDownloader(
@@ -750,28 +1099,117 @@ How to get credentials manually:
         # Get last sync timestamp for this child (skip if --login or --full)
         stop_at = last_sync.get(child_id) if not (args.login or args.full) else None
 
+        # Track counts for index page
+        observations = []
+        photos = []
+
         try:
-            images = downloader.fetch_all_images(stop_at=stop_at)
+            # Download photos (unless --observations-only)
+            if not args.observations_only:
+                print(f"\nResolution: {'Thumbnail' if args.thumbnail_only else 'Full'}")
+                images = downloader.fetch_all_images(stop_at=stop_at)
 
-            if not images:
-                print("No new images found for this child.")
-                continue
+                if not images:
+                    print("No new images found for this child.")
+                elif args.dry_run:
+                    print(f"\nDry run - would download {len(images)} images:")
+                    for img in images[:5]:
+                        print(f"  - {downloader._generate_filename(img)}")
+                    if len(images) > 5:
+                        print(f"  ... and {len(images) - 5} more")
+                else:
+                    downloader.download_all(images)
 
-            if args.dry_run:
-                print(f"\nDry run - would download {len(images)} images:")
-                for img in images[:5]:
-                    print(f"  - {downloader._generate_filename(img)}")
-                if len(images) > 5:
-                    print(f"  ... and {len(images) - 5} more")
-                continue
+                    # Update last sync timestamp with newest image
+                    if images:
+                        newest_timestamp = images[0].get("createdAt")
+                        if newest_timestamp:
+                            update_last_sync(output_dir, child_id, newest_timestamp)
 
-            downloader.download_all(images)
+            # Download observations (if --observations or --observations-only)
+            if args.observations or args.observations_only:
+                print("\n" + "-" * 40)
+                observations = downloader.fetch_all_observations()
 
-            # Update last sync timestamp with newest image
-            if images:
-                newest_timestamp = images[0].get("createdAt")
-                if newest_timestamp:
-                    update_last_sync(output_dir, child_id, newest_timestamp)
+                if observations:
+                    formatter = get_formatter(args.format)
+                    ext = formatter.file_extension
+                    obs_dir = child_output_dir / "observations"
+                    obs_dir.mkdir(parents=True, exist_ok=True)
+
+                    print(
+                        f"\nProcessing {len(observations)} observations (format: {args.format})..."
+                    )
+                    with tqdm(total=len(observations), unit="obs") as pbar:
+                        for obs in observations:
+                            # Create observation directory
+                            obs_name = downloader._get_observation_dir_name(obs)
+                            obs_path = obs_dir / obs_name
+                            obs_path.mkdir(parents=True, exist_ok=True)
+
+                            # Download images for this observation
+                            image_paths = downloader.download_observation_images(obs, obs_path)
+
+                            # Download file attachments for this observation
+                            file_paths = downloader.download_observation_files(obs, obs_path)
+
+                            # Download videos for this observation
+                            video_paths = downloader.download_observation_videos(obs, obs_path)
+
+                            # Generate observation output
+                            output = formatter.format_observation(
+                                obs,
+                                image_paths,
+                                downloader._get_observation_dir_name,
+                                file_paths=file_paths,
+                                video_paths=video_paths,
+                            )
+                            output_file = obs_path / f"index.{ext}"
+                            with open(output_file, "w", encoding="utf-8") as f:
+                                f.write(output)
+
+                            pbar.update(1)
+
+                    # Generate observations feed index
+                    feed_output = formatter.format_observations_feed(
+                        observations, downloader._get_observation_dir_name
+                    )
+                    feed_file = obs_dir / f"index.{ext}"
+                    with open(feed_file, "w", encoding="utf-8") as f:
+                        f.write(feed_output)
+
+                    print(f"Generated observations feed: {feed_file}")
+                else:
+                    print("No observations found for this child.")
+
+            # Generate photo gallery (if --gallery)
+            photos = []
+            if args.gallery:
+                print("\n" + "-" * 40)
+                print(f"Generating photo gallery (format: {args.format})...")
+                formatter = get_formatter(args.format)
+                ext = formatter.file_extension
+                photos = get_photos_from_directory(child_output_dir)
+                if photos:
+                    gallery_output = formatter.format_photo_gallery(photos)
+                    gallery_file = child_output_dir / f"gallery.{ext}"
+                    with open(gallery_file, "w", encoding="utf-8") as f:
+                        f.write(gallery_output)
+                    print(f"Generated photo gallery: {gallery_file}")
+                else:
+                    print("No photos found for gallery.")
+
+            # Generate main index page
+            formatter = get_formatter(args.format)
+            ext = formatter.file_extension
+            obs_count = len(observations) if observations else 0
+            if not photos:
+                photos = get_photos_from_directory(child_output_dir)
+            index_output = formatter.format_index(obs_count, len(photos), child_name)
+            index_file = child_output_dir / f"index.{ext}"
+            with open(index_file, "w", encoding="utf-8") as f:
+                f.write(index_output)
+            print(f"\nGenerated main index: {index_file}")
 
         except requests.exceptions.HTTPError as e:
             if e.response.status_code == 401:
