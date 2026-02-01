@@ -616,6 +616,10 @@ header a:hover {
     display: flex;
 }
 
+.lightbox * {
+    touch-action: manipulation;
+}
+
 .lightbox-image {
     max-width: 90%;
     max-height: 85vh;
@@ -755,6 +759,8 @@ header a:hover {
     bottom: 0;
     width: 30%;
     z-index: 1000;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .lightbox-touch-left {
@@ -964,7 +970,7 @@ header a:hover {
 
     .timeline-nav {
         opacity: 0;
-        pointer-events: auto;
+        pointer-events: none;
         transition: opacity 0.3s ease, width 0.2s ease, padding 0.2s ease;
         right: 0;
         top: 10%;
@@ -987,19 +993,22 @@ header a:hover {
             linear-gradient(to right, transparent 0%, black 20%, black 100%),
             linear-gradient(to bottom, transparent 0%, black 8%, black 92%, transparent 100%);
         mask-composite: intersect;
-        touch-action: none;
         -webkit-touch-callout: none;
         -webkit-user-select: none;
         user-select: none;
     }
 
-    .timeline-nav.visible,
-    .timeline-nav:hover {
+    .timeline-nav .timeline-item,
+    .timeline-nav .timeline-year {
+        pointer-events: auto;
+        touch-action: none;
+    }
+
+    .timeline-nav.visible {
         opacity: 1;
     }
 
-    .timeline-nav.expanded,
-    .timeline-nav:hover {
+    .timeline-nav.expanded {
         width: 200px;
         padding-left: 55px;
     }
@@ -1021,8 +1030,7 @@ header a:hover {
         flex-shrink: 0;
     }
 
-    .timeline-nav.expanded .timeline-item.active .timeline-label,
-    .timeline-nav:hover .timeline-item.active .timeline-label {
+    .timeline-nav.expanded .timeline-item.active .timeline-label {
         opacity: 1 !important;
         transform: translateX(0) scale(1.1);
     }
@@ -1047,50 +1055,42 @@ header a:hover {
         opacity: 1;
     }
 
-    .timeline-nav.expanded .timeline-label,
-    .timeline-nav:hover .timeline-label {
+    .timeline-nav.expanded .timeline-label {
         opacity: 0.5 !important;
         transform: translateX(0) scale(0.9);
     }
 
-    .timeline-nav.expanded .timeline-item.neighbor-2 .timeline-label,
-    .timeline-nav:hover .timeline-item.neighbor-2 .timeline-label {
+    .timeline-nav.expanded .timeline-item.neighbor-2 .timeline-label {
         opacity: 0.65 !important;
         transform: translateX(0) scale(0.95);
     }
 
-    .timeline-nav.expanded .timeline-item.neighbor .timeline-label,
-    .timeline-nav:hover .timeline-item.neighbor .timeline-label {
+    .timeline-nav.expanded .timeline-item.neighbor .timeline-label {
         opacity: 0.85 !important;
         transform: translateX(0) scale(1.05);
     }
 
-    .timeline-nav.expanded .timeline-item.hovered .timeline-label,
-    .timeline-nav:hover .timeline-item.hovered .timeline-label {
+    .timeline-nav.expanded .timeline-item.hovered .timeline-label {
         opacity: 1 !important;
         transform: translateX(0) scale(1.2);
         font-weight: 600;
     }
 
-    .timeline-nav.expanded .timeline-year,
-    .timeline-nav:hover .timeline-year {
+    .timeline-nav.expanded .timeline-year {
         opacity: 1;
         transform: translateX(0);
     }
 
-    .timeline-nav:hover .timeline-item.neighbor-2 .timeline-tick,
     .timeline-nav.expanded .timeline-item.neighbor-2 .timeline-tick {
         width: 24px;
         opacity: 0.7;
     }
 
-    .timeline-nav:hover .timeline-item.neighbor .timeline-tick,
     .timeline-nav.expanded .timeline-item.neighbor .timeline-tick {
         width: 28px;
         opacity: 0.85;
     }
 
-    .timeline-nav:hover .timeline-item.hovered .timeline-tick,
     .timeline-nav.expanded .timeline-item.hovered .timeline-tick {
         width: 34px;
         opacity: 1;
@@ -2106,8 +2106,14 @@ class HTMLFormatter(OutputFormatter):
         }
     }
 
+    // Check if the event target is a timeline element (not empty space in the nav)
+    function isTimelineElement(target) {
+        return target.closest('.timeline-item') || target.closest('.timeline-tick') || target.closest('.timeline-year');
+    }
+
     // Unified pointer events (works for both touch and mouse)
     nav.addEventListener('pointerdown', (e) => {
+        if (!isTimelineElement(e.target)) return;
         if (e.pointerType === 'touch') {
             nav.setPointerCapture(e.pointerId);
         }
@@ -2135,14 +2141,14 @@ class HTMLFormatter(OutputFormatter):
 
     // Touch event fallback for older iOS Safari
     nav.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1) {
+        if (e.touches.length === 1 && isTimelineElement(e.target)) {
             startDrag(e.touches[0].clientY);
             e.preventDefault();
         }
     }, { passive: false });
 
     nav.addEventListener('touchmove', (e) => {
-        if (e.touches.length === 1) {
+        if (isDragging && e.touches.length === 1) {
             moveDrag(e.touches[0].clientY);
             e.preventDefault();
         }
