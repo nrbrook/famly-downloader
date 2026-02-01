@@ -39,7 +39,13 @@ from pathlib import Path
 import requests
 from tqdm import tqdm
 
-from output_formats import FORMATTERS, get_formatter, get_photos_from_directory
+from output_formats import (
+    FORMATTERS,
+    get_conversations_count_from_directory,
+    get_formatter,
+    get_observations_count_from_directory,
+    get_photos_from_directory,
+)
 
 DEFAULT_CONFIG = {
     "output_dir": "./famly_photos",
@@ -1073,24 +1079,39 @@ How to get credentials manually:
     )
     parser.add_argument("--dry-run", action="store_true", help="List images without downloading")
     parser.add_argument(
-        "--observations",
+        "--no-photos",
         action="store_true",
-        help="Download observations in addition to photos",
+        help="Skip downloading standalone photos",
+    )
+    parser.add_argument(
+        "--photos-only",
+        action="store_true",
+        help="Only download photos, skip observations and messages",
+    )
+    parser.add_argument(
+        "--no-observations",
+        action="store_true",
+        help="Skip downloading observations",
     )
     parser.add_argument(
         "--observations-only",
         action="store_true",
-        help="Only download observations, skip standalone photos",
+        help="Only download observations, skip photos and messages",
     )
     parser.add_argument(
-        "--messages",
+        "--no-messages",
         action="store_true",
-        help="Download messages/conversations",
+        help="Skip downloading messages/conversations",
     )
     parser.add_argument(
-        "--gallery",
+        "--messages-only",
         action="store_true",
-        help="Generate photo gallery (organized by month/year)",
+        help="Only download messages, skip photos and observations",
+    )
+    parser.add_argument(
+        "--no-gallery",
+        action="store_true",
+        help="Skip generating photo gallery",
     )
     parser.add_argument(
         "--format",
@@ -1199,13 +1220,19 @@ How to get credentials manually:
         # Get last sync timestamp for this child (skip if --login or --full)
         stop_at = last_sync.get(child_id) if not (args.login or args.full) else None
 
+        # Determine what to download based on flags
+        download_photos = not (args.no_photos or args.observations_only or args.messages_only)
+        download_observations = not (args.no_observations or args.photos_only or args.messages_only)
+        download_messages = not (args.no_messages or args.photos_only or args.observations_only)
+        generate_gallery = not args.no_gallery
+
         # Track counts for index page
         observations = []
         photos = []
 
         try:
-            # Download photos (unless --observations-only)
-            if not args.observations_only:
+            # Download photos
+            if download_photos:
                 print(f"\nResolution: {'Thumbnail' if args.thumbnail_only else 'Full'}")
                 images = downloader.fetch_all_images(stop_at=stop_at)
 
@@ -1226,8 +1253,8 @@ How to get credentials manually:
                         if newest_timestamp:
                             update_last_sync(output_dir, child_id, newest_timestamp)
 
-            # Download observations (if --observations or --observations-only)
-            if args.observations or args.observations_only:
+            # Download observations
+            if download_observations:
                 print("\n" + "-" * 40)
                 observations = downloader.fetch_all_observations()
 
@@ -1282,9 +1309,9 @@ How to get credentials manually:
                 else:
                     print("No observations found for this child.")
 
-            # Generate photo gallery (if --gallery)
+            # Generate photo gallery
             photos = []
-            if args.gallery:
+            if generate_gallery:
                 print("\n" + "-" * 40)
                 print(f"Generating photo gallery (format: {args.format})...")
                 formatter = get_formatter(args.format)
@@ -1299,9 +1326,9 @@ How to get credentials manually:
                 else:
                     print("No photos found for gallery.")
 
-            # Download messages (if --messages)
+            # Download messages
             conversations = []
-            if args.messages:
+            if download_messages:
                 print("\n" + "-" * 40)
                 print("Fetching conversations...")
                 conversation_summaries = downloader.fetch_conversations()
@@ -1345,8 +1372,16 @@ How to get credentials manually:
             # Generate main index page
             formatter = get_formatter(args.format)
             ext = formatter.file_extension
-            obs_count = len(observations) if observations else 0
-            conv_count = len(conversations) if conversations else 0
+            obs_count = (
+                len(observations)
+                if observations
+                else get_observations_count_from_directory(child_output_dir)
+            )
+            conv_count = (
+                len(conversations)
+                if conversations
+                else get_conversations_count_from_directory(child_output_dir)
+            )
             if not photos:
                 photos = get_photos_from_directory(child_output_dir)
             index_output = formatter.format_index(obs_count, len(photos), conv_count, child_name)

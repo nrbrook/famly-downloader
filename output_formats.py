@@ -596,6 +596,192 @@ header a:hover {
     transform: scale(1.05);
 }
 
+/* Lightbox overlay */
+.lightbox {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.95);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.lightbox.active {
+    display: flex;
+}
+
+.lightbox-image {
+    max-width: 90%;
+    max-height: 85vh;
+    object-fit: contain;
+    border-radius: 4px;
+}
+
+.lightbox-close {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 44px;
+    height: 44px;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+    z-index: 1001;
+}
+
+.lightbox-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.lightbox-close::before,
+.lightbox-close::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 2px;
+    background: white;
+}
+
+.lightbox-close::before {
+    transform: rotate(45deg);
+}
+
+.lightbox-close::after {
+    transform: rotate(-45deg);
+}
+
+.lightbox-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 50px;
+    height: 50px;
+    background: rgba(255, 255, 255, 0.15);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, opacity 0.2s;
+    z-index: 1001;
+}
+
+.lightbox-nav:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+.lightbox-nav:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.lightbox-nav.prev {
+    left: 20px;
+}
+
+.lightbox-nav.next {
+    right: 20px;
+}
+
+.lightbox-nav::before {
+    content: '';
+    width: 12px;
+    height: 12px;
+    border-top: 2px solid white;
+    border-right: 2px solid white;
+}
+
+.lightbox-nav.prev::before {
+    transform: rotate(-135deg);
+    margin-left: 4px;
+}
+
+.lightbox-nav.next::before {
+    transform: rotate(45deg);
+    margin-right: 4px;
+}
+
+.lightbox-counter {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.9rem;
+    padding: 8px 16px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 20px;
+}
+
+.lightbox-info {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    color: white;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    z-index: 1001;
+}
+
+.lightbox-date {
+    font-size: 1.1rem;
+    font-weight: 500;
+    margin-bottom: 4px;
+}
+
+.lightbox-stats {
+    font-size: 0.9rem;
+    opacity: 0.9;
+    display: flex;
+    gap: 12px;
+}
+
+/* Touch areas for mobile navigation */
+.lightbox-touch-left,
+.lightbox-touch-right {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 30%;
+    z-index: 1000;
+}
+
+.lightbox-touch-left {
+    left: 0;
+    cursor: w-resize;
+}
+
+.lightbox-touch-right {
+    right: 0;
+    cursor: e-resize;
+}
+
+@media (max-width: 600px) {
+    .lightbox-nav {
+        display: none;
+    }
+
+    .lightbox-close {
+        top: 10px;
+        right: 10px;
+    }
+
+    .lightbox-counter {
+        bottom: 15px;
+    }
+}
+
 /* Gallery with timeline layout */
 .gallery-layout {
     display: flex;
@@ -1115,6 +1301,105 @@ class HTMLFormatter(OutputFormatter):
             video_paths=video_paths,
         )
 
+        # Get lightbox data from the card build
+        lightbox_images = getattr(self, "_current_lightbox_images", [])
+        lightbox_date = getattr(self, "_current_lightbox_date", "")
+        lightbox_likes = getattr(self, "_current_lightbox_likes", 0)
+        lightbox_comments = getattr(self, "_current_lightbox_comments", 0)
+
+        # Build lightbox HTML and JS if there are images
+        lightbox_html = ""
+        lightbox_js = ""
+        if lightbox_images:
+            photos_js_array = ", ".join(f'"{p}"' for p in lightbox_images)
+            lightbox_html = """
+    <!-- Lightbox overlay -->
+    <div id="lightbox" class="lightbox">
+        <button id="lightbox-close" class="lightbox-close" aria-label="Close"></button>
+        <button id="lightbox-prev" class="lightbox-nav prev" aria-label="Previous"></button>
+        <button id="lightbox-next" class="lightbox-nav next" aria-label="Next"></button>
+        <div class="lightbox-touch-left"></div>
+        <div class="lightbox-touch-right"></div>
+        <img id="lightbox-img" class="lightbox-image" src="" alt="Photo">
+        <div class="lightbox-info">
+            <div class="lightbox-date" id="lightbox-date"></div>
+            <div class="lightbox-stats">
+                <span id="lightbox-likes"></span>
+                <span id="lightbox-comments"></span>
+            </div>
+        </div>
+        <div id="lightbox-counter" class="lightbox-counter"></div>
+    </div>
+"""
+            lightbox_js = f"""
+<script>
+(function() {{
+    const photos = [{photos_js_array}];
+    const photoDate = "{lightbox_date}";
+    const likesCount = {lightbox_likes};
+    const commentsCount = {lightbox_comments};
+    let currentIndex = 0;
+
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightbox-img');
+    const lightboxCounter = document.getElementById('lightbox-counter');
+    const lightboxDate = document.getElementById('lightbox-date');
+    const lightboxLikes = document.getElementById('lightbox-likes');
+    const lightboxComments = document.getElementById('lightbox-comments');
+    const prevBtn = document.getElementById('lightbox-prev');
+    const nextBtn = document.getElementById('lightbox-next');
+
+    function updateLightbox() {{
+        lightboxImg.src = photos[currentIndex];
+        lightboxCounter.textContent = (currentIndex + 1) + ' / ' + photos.length;
+        lightboxDate.textContent = photoDate;
+        lightboxLikes.textContent = '💜 ' + likesCount;
+        lightboxComments.textContent = '💬 ' + commentsCount;
+        prevBtn.disabled = currentIndex === 0;
+        nextBtn.disabled = currentIndex === photos.length - 1;
+    }}
+
+    window.openLightbox = function(index) {{
+        currentIndex = index;
+        updateLightbox();
+        lightbox.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }};
+
+    function closeLightbox() {{
+        lightbox.classList.remove('active');
+        document.body.style.overflow = '';
+    }}
+
+    function navigate(direction) {{
+        const newIndex = currentIndex + direction;
+        if (newIndex >= 0 && newIndex < photos.length) {{
+            currentIndex = newIndex;
+            updateLightbox();
+        }}
+    }}
+
+    document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
+    prevBtn.addEventListener('click', () => navigate(-1));
+    nextBtn.addEventListener('click', () => navigate(1));
+    document.querySelector('.lightbox-touch-left').addEventListener('click', () => navigate(-1));
+    document.querySelector('.lightbox-touch-right').addEventListener('click', () => navigate(1));
+
+    document.addEventListener('keydown', (e) => {{
+        if (!lightbox.classList.contains('active')) return;
+        switch (e.key) {{
+            case 'ArrowLeft': navigate(-1); e.preventDefault(); break;
+            case 'ArrowRight': navigate(1); e.preventDefault(); break;
+            case 'Escape': closeLightbox(); e.preventDefault(); break;
+        }}
+    }});
+
+    lightbox.addEventListener('click', (e) => {{
+        if (e.target === lightbox) closeLightbox();
+    }});
+}})();
+</script>"""
+
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1136,7 +1421,8 @@ class HTMLFormatter(OutputFormatter):
     </header>
     <div class="container">
         {card_html}
-    </div>{FOOTER_HTML}
+    </div>{lightbox_html}{FOOTER_HTML}
+    {lightbox_js}
 </body>
 </html>"""
 
@@ -1206,28 +1492,37 @@ class HTMLFormatter(OutputFormatter):
         except ValueError:
             formatted_date = date
 
-        # Build image gallery HTML
+        # Build image gallery HTML with lightbox support
         images_html = ""
+        image_list_for_lightbox = []
         if image_paths:
             # Use actual downloaded image paths
             single_class = "single" if len(image_paths) == 1 else ""
             images_html = f'<div class="observation-images {single_class}">'
-            for img_path in image_paths:
+            for idx, img_path in enumerate(image_paths):
                 rel_path = f"img/{img_path.name}"
-                images_html += f'<a href="{rel_path}" target="_blank"><img src="{rel_path}" alt="Observation image"></a>'
+                image_list_for_lightbox.append(rel_path)
+                images_html += f'<a href="#" data-lightbox-index="{idx}" onclick="openLightbox({idx}); return false;"><img src="{rel_path}" alt="Observation image"></a>'
             images_html += "</div>"
         elif images:
             # Construct paths from observation metadata
             dir_name = dir_name_func(observation)
             single_class = "single" if len(images) == 1 else ""
             images_html = f'<div class="observation-images {single_class}">'
-            for img in images:
+            for idx, img in enumerate(images):
                 img_id = img.get("id", "")[:8]
                 path = img.get("secret", {}).get("path", "")
                 ext = Path(path).suffix if path else ".jpg"
                 rel_path = f"{base_path}{dir_name}/img/{img_id}{ext}"
-                images_html += f'<a href="{rel_path}" target="_blank"><img src="{rel_path}" alt="Observation image"></a>'
+                image_list_for_lightbox.append(rel_path)
+                images_html += f'<a href="#" data-lightbox-index="{idx}" onclick="openLightbox({idx}); return false;"><img src="{rel_path}" alt="Observation image"></a>'
             images_html += "</div>"
+
+        # Store lightbox data for this observation card
+        self._current_lightbox_images = image_list_for_lightbox
+        self._current_lightbox_date = formatted_date
+        self._current_lightbox_likes = likes_count
+        self._current_lightbox_comments = comments_count
 
         # Build files section HTML
         files_html = ""
@@ -1565,14 +1860,20 @@ class HTMLFormatter(OutputFormatter):
         timeline_html = ""
         prev_year = None
 
+        # Build a flat list of all photos for the lightbox navigation
+        all_photos = []
+        photo_index = 0
+
         for month_key, month_label in sorted_months:
             month_photos = sorted(photos_by_month[(month_key, month_label)], reverse=True)
             photos_html = ""
             for photo in month_photos:
+                all_photos.append(photo.name)
                 photos_html += f"""
-                <a href="{photo.name}" target="_blank">
+                <a href="#" data-lightbox-index="{photo_index}" onclick="openLightbox({photo_index}); return false;">
                     <img src="{photo.name}" alt="{photo.stem}" loading="lazy">
                 </a>"""
+                photo_index += 1
 
             # Use month_key as section ID
             sections_html += f"""
@@ -1597,6 +1898,9 @@ class HTMLFormatter(OutputFormatter):
                 <span class="timeline-label">{short_month} {year}</span>
                 <span class="timeline-tick"></span>
             </div>"""
+
+        # Build the photos array for JavaScript
+        photos_js_array = ", ".join(f'"{name}"' for name in all_photos)
 
         # Add final year label
         if prev_year:
@@ -1854,6 +2158,82 @@ class HTMLFormatter(OutputFormatter):
 })();
 </script>"""
 
+        lightbox_js = f"""
+<script>
+(function() {{
+    const photos = [{photos_js_array}];
+    let currentIndex = 0;
+
+    const lightbox = document.getElementById('lightbox');
+    const lightboxImg = document.getElementById('lightbox-img');
+    const lightboxCounter = document.getElementById('lightbox-counter');
+    const lightboxDate = document.getElementById('lightbox-date');
+    const prevBtn = document.getElementById('lightbox-prev');
+    const nextBtn = document.getElementById('lightbox-next');
+
+    // Parse date/time from filename (format: YYYY-MM-DD_HHMMSS_id.jpg)
+    function formatPhotoDate(filename) {{
+        const match = filename.match(/^(\\d{{4}})-(\\d{{2}})-(\\d{{2}})_(\\d{{2}})(\\d{{2}})(\\d{{2}})/);
+        if (match) {{
+            const [, year, month, day, hour, min, sec] = match;
+            const date = new Date(year, month - 1, day, hour, min, sec);
+            const months = ['January', 'February', 'March', 'April', 'May', 'June',
+                           'July', 'August', 'September', 'October', 'November', 'December'];
+            return day + ' ' + months[date.getMonth()] + ' ' + year + ', ' +
+                   hour + ':' + min;
+        }}
+        return '';
+    }}
+
+    function updateLightbox() {{
+        lightboxImg.src = photos[currentIndex];
+        lightboxCounter.textContent = (currentIndex + 1) + ' / ' + photos.length;
+        lightboxDate.textContent = formatPhotoDate(photos[currentIndex]);
+        prevBtn.disabled = currentIndex === 0;
+        nextBtn.disabled = currentIndex === photos.length - 1;
+    }}
+
+    window.openLightbox = function(index) {{
+        currentIndex = index;
+        updateLightbox();
+        lightbox.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }};
+
+    function closeLightbox() {{
+        lightbox.classList.remove('active');
+        document.body.style.overflow = '';
+    }}
+
+    function navigate(direction) {{
+        const newIndex = currentIndex + direction;
+        if (newIndex >= 0 && newIndex < photos.length) {{
+            currentIndex = newIndex;
+            updateLightbox();
+        }}
+    }}
+
+    document.getElementById('lightbox-close').addEventListener('click', closeLightbox);
+    prevBtn.addEventListener('click', () => navigate(-1));
+    nextBtn.addEventListener('click', () => navigate(1));
+    document.querySelector('.lightbox-touch-left').addEventListener('click', () => navigate(-1));
+    document.querySelector('.lightbox-touch-right').addEventListener('click', () => navigate(1));
+
+    document.addEventListener('keydown', (e) => {{
+        if (!lightbox.classList.contains('active')) return;
+        switch (e.key) {{
+            case 'ArrowLeft': navigate(-1); e.preventDefault(); break;
+            case 'ArrowRight': navigate(1); e.preventDefault(); break;
+            case 'Escape': closeLightbox(); e.preventDefault(); break;
+        }}
+    }});
+
+    lightbox.addEventListener('click', (e) => {{
+        if (e.target === lightbox) closeLightbox();
+    }});
+}})();
+</script>"""
+
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1877,8 +2257,25 @@ class HTMLFormatter(OutputFormatter):
     </nav>
     <div class="container">
         {sections_html}
-    </div>{FOOTER_HTML}
+    </div>
+
+    <!-- Lightbox overlay -->
+    <div id="lightbox" class="lightbox">
+        <button id="lightbox-close" class="lightbox-close" aria-label="Close"></button>
+        <button id="lightbox-prev" class="lightbox-nav prev" aria-label="Previous"></button>
+        <button id="lightbox-next" class="lightbox-nav next" aria-label="Next"></button>
+        <div class="lightbox-touch-left"></div>
+        <div class="lightbox-touch-right"></div>
+        <img id="lightbox-img" class="lightbox-image" src="" alt="Photo">
+        <div class="lightbox-info">
+            <div class="lightbox-date" id="lightbox-date"></div>
+        </div>
+        <div id="lightbox-counter" class="lightbox-counter"></div>
+    </div>
+
+    {FOOTER_HTML}
     {timeline_js}
+    {lightbox_js}
 </body>
 </html>"""
 
@@ -2508,3 +2905,51 @@ def get_photos_from_directory(output_dir: Path) -> list[Path]:
         if f.is_file() and f.suffix.lower() in (".jpg", ".jpeg", ".png"):
             photos.append(f)
     return photos
+
+
+def get_observations_count_from_directory(output_dir: Path) -> int:
+    """
+    Count observation folders in the observations subdirectory.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Parent directory containing the observations folder.
+
+    Returns
+    -------
+    int
+        Number of observation folders found.
+    """
+    obs_dir = output_dir / "observations"
+    if not obs_dir.exists():
+        return 0
+    count = 0
+    for f in obs_dir.iterdir():
+        if f.is_dir():
+            count += 1
+    return count
+
+
+def get_conversations_count_from_directory(output_dir: Path) -> int:
+    """
+    Count conversation folders in the messages subdirectory.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Parent directory containing the messages folder.
+
+    Returns
+    -------
+    int
+        Number of conversation folders found.
+    """
+    messages_dir = output_dir / "messages"
+    if not messages_dir.exists():
+        return 0
+    count = 0
+    for f in messages_dir.iterdir():
+        if f.is_dir():
+            count += 1
+    return count
